@@ -10,7 +10,7 @@ using UnityEngine.Networking;
 
 namespace Oxide.Plugins
 {
-    [Info("Inventory Viewer", "Whispers88", "4.0.4")]
+    [Info("Inventory Viewer", "Whispers88", "4.0.5")]
     [Description("Allows players with permission assigned to view anyone's inventory")]
     public class InventoryViewer : CovalencePlugin
     {
@@ -175,7 +175,6 @@ namespace Oxide.Plugins
             player.EndLooting();
 
             LootableCorpse corpse = GameManager.server.CreateEntity(StringPool.Get(2604534927), Vector3.zero) as LootableCorpse;
-                corpse.CancelInvoke("RemoveCorpse");
             if (config.timeout != 0)
                 timer.Once(config.timeout, ()=> OnLootEntityEnd(player, corpse));
             corpse.syncPosition = false;
@@ -184,6 +183,7 @@ namespace Oxide.Plugins
             corpse.playerSteamID = 0;
             corpse.enableSaving = false;
             corpse.Spawn();
+            corpse.CancelInvoke(corpse.RemoveCorpse);
             corpse.SetFlag(BaseEntity.Flags.Locked, true);
             Buoyancy bouyancy;
             if (corpse.TryGetComponent<Buoyancy>(out bouyancy))

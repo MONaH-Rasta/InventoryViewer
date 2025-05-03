@@ -1,16 +1,18 @@
 using Newtonsoft.Json;
 using Oxide.Core.Libraries.Covalence;
+using ProtoBuf;
 using Rust;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+
 using UnityEngine;
 using UnityEngine.Networking;
 
 namespace Oxide.Plugins
 {
-    [Info("Inventory Viewer", "Whispers88", "4.0.6")]
+    [Info("Inventory Viewer", "Whispers88", "4.1.2")]
     [Description("Allows players with permission assigned to view anyone's inventory")]
     public class InventoryViewer : CovalencePlugin
     {
@@ -30,10 +32,12 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
-            for (var i = _viewingcorpse.Count - 1; i >= 0; i--)
+            foreach (var a in _viewingtarget.Values.ToList())
             {
-                if (_viewingcorpse[i] == null) continue;
-                _viewingcorpse[i].Kill();
+                if (a.corpse != null)
+                    a.corpse.Kill();
+                if (a.backpack != null)
+                    a.backpack.Kill();
             }
         }
 
@@ -63,6 +67,12 @@ namespace Oxide.Plugins
 
             [JsonProperty("Discord avatar URL")]
             public string discordavatarurl = "https://i.imgur.com/BLoVcpz.png";
+
+            [JsonProperty("View Backpack Button AnchorMin")]
+            public string ImageAnchorMin = "0.175 0.017";
+
+            [JsonProperty("View Backpack Button AnchorMax")]
+            public string ImageAnchorMax = "0.22 0.08";
             public string ToJson() => JsonConvert.SerializeObject(this);
 
             public Dictionary<string, object> ToDictionary() => JsonConvert.DeserializeObject<Dictionary<string, object>>(ToJson());
@@ -171,21 +181,21 @@ namespace Oxide.Plugins
         #endregion Commands
 
         #region Methods
-        private List<LootableCorpse> _viewingcorpse = new List<LootableCorpse>();
+        private Dictionary<ulong, LootingData> _viewingtarget = new Dictionary<ulong, LootingData>();
         private void ViewInventory(BasePlayer player, BasePlayer targetplayer)
         {
-            if (_viewingcorpse.Count == 0)
+            if (_viewingtarget.Count == 0)
                 SubscribeToHooks();
 
             player.EndLooting();
 
             LootableCorpse corpse = GameManager.server.CreateEntity(StringPool.Get(2604534927), Vector3.zero) as LootableCorpse;
             if (config.timeout != 0)
-                timer.Once(config.timeout, () => OnLootEntityEnd(player, corpse));
+                timer.Once(config.timeout, () => EndCorpseLooting(player, corpse));
 
             corpse.syncPosition = false;
             corpse.limitNetworking = true;
-            corpse.playerName = targetplayer.displayName;
+            corpse.playerName = $"{targetplayer.displayName} - ({targetplayer.userID})";
             corpse.playerSteamID = 0;
             corpse.enableSaving = false;
             corpse.Spawn();
@@ -219,7 +229,24 @@ namespace Oxide.Plugins
             player.inventory.loot.MarkDirty();
             player.inventory.loot.SendImmediate();
             player.ClientRPCPlayer<string>(null, player, "RPC_OpenLootPanel", "player_corpse");
-            _viewingcorpse.Add(corpse);
+
+            if (_viewingtarget.TryGetValue(player.userID, out LootingData lootingData))
+            {
+                if (lootingData.targetPlayer != targetplayer)
+                {
+                    if (lootingData.corpse != null)
+                        corpse.Kill();
+                    if (lootingData.backpack != null)
+                        lootingData.backpack.Kill();
+
+                }
+                _viewingtarget[player.userID] = new LootingData() { corpse = corpse, targetPlayer = targetplayer, backpack = null };
+            }
+            else
+            {
+                _viewingtarget.Add(player.userID, new LootingData() { corpse = corpse, targetPlayer = targetplayer });
+
+            }
             if (config.consolelogging)
                 LogWarning($"{player.displayName}({player.userID}) is viewing the inventory of {targetplayer.displayName}({targetplayer.userID})");
         }
@@ -227,20 +254,70 @@ namespace Oxide.Plugins
         #endregion Methods
 
         #region Hooks
-        private void OnLootEntityEnd(BasePlayer player, LootableCorpse corpse)
+
+        private void OnLootEntityEnd(BasePlayer player, StorageContainer container)
         {
-            if (!_viewingcorpse.Contains(corpse)) return;
+            if (_viewingtarget.TryGetValue(player.userID, out LootingData lootingData))
+            {
+                if (lootingData.backpack != null)
+                {
+                    lootingData.backpack.Kill();
 
-            _viewingcorpse.Remove(corpse);
-            if (corpse != null)
-                corpse.Kill();
+                    lootingData.backpack = null;
 
-            if (config.discordlogging)
-                player.StartCoroutine(LogToDiscord(player, player.inventory.loot.containers[0].playerOwner, corpse));
+                    timer.Once(0.3f, () =>
+                    {
+                        if (player != null && lootingData.targetPlayer != null && lootingData.corpse != null)
+                            StartLooting(player, lootingData.targetPlayer, lootingData.corpse);
+                    });
+                    return;
+                }
 
-            if (_viewingcorpse.Count == 0)
+                if (lootingData.corpse != null)
+                {
+                    if (config.discordlogging)
+                        player.StartCoroutine(LogToDiscord(player, lootingData.targetPlayer,
+                            lootingData.corpse));
+
+                    lootingData.corpse.Kill();
+
+                    _viewingtarget.Remove(player.userID);
+                }
+            }
+
+            LootableCorpse corpse = container.GetEntity() as LootableCorpse;
+
+            if (_viewingtarget.Count == 0)
                 UnSubscribeFromHooks();
 
+        }
+
+        private void EndCorpseLooting(BasePlayer player, LootableCorpse corpse)
+        {
+            if (corpse != null)
+            {
+                if (!_viewingtarget.TryGetValue(player.userID, out LootingData lootingData)) return;
+
+                if (config.discordlogging)
+                    player.StartCoroutine(LogToDiscord(player, lootingData.targetPlayer,
+                        corpse));
+
+                _viewingtarget.Remove(player.userID);
+
+                if (corpse != null)
+                    corpse.Kill();
+
+            }
+
+            if (_viewingtarget.Count == 0)
+                UnSubscribeFromHooks();
+        }
+
+        private class LootingData
+        {
+            public LootableCorpse? corpse;
+            public StorageContainer? backpack;
+            public BasePlayer targetPlayer;
         }
 
         private Dictionary<LootableCorpse, List<Item>> _logtaken = new Dictionary<LootableCorpse, List<Item>>();
@@ -249,9 +326,22 @@ namespace Oxide.Plugins
         {
             BasePlayer player = playerInventory.baseEntity;
             if (player == null) return null;
-            LootableCorpse corpse = (player.inventory.loot?.entitySource) as LootableCorpse;
-            if (corpse == null) return null;
-            if (!_viewingcorpse.Contains(corpse)) return null;
+
+            if (!_viewingtarget.TryGetValue(player.userID, out LootingData lootingData))
+                return null;
+
+            if (lootingData.backpack == null)
+            {
+
+                if (item.IsBackpack() && item.contents != null && item.contents?.itemList.Count > 0)
+                {
+                    ViewBackpack(player, item);
+                    return false;
+                }
+            }
+
+            LootableCorpse corpse = lootingData.corpse;
+
             if (corpse.HasFlag(BaseEntity.Flags.Locked) && !HasPerm(player.UserIDString, permunlock)) return false;
             if (config.discordlogging)
             {
@@ -327,15 +417,53 @@ namespace Oxide.Plugins
             return null;
         }
 
-        void OnEntityDeath(LootableCorpse corpse, HitInfo info)
+
+        private static string _coffinPrefab = "assets/prefabs/misc/halloween/coffin/coffinstorage.prefab";
+
+        private void ViewBackpack(BasePlayer player, Item targetItem)
         {
-            if (!_viewingcorpse.Contains(corpse)) return;
-            _viewingcorpse.Remove(corpse);
-            if (corpse != null)
-                corpse.Kill();
-            if (_viewingcorpse.Count == 0)
-                UnSubscribeFromHooks();
+            if (!_viewingtarget.TryGetValue(player.userID, out LootingData lootingData)) return;
+
+            StorageContainer storage = GameManager.server.CreateEntity(_coffinPrefab, Vector3.zero) as StorageContainer;
+
+            storage.syncPosition = false;
+            storage.limitNetworking = true;
+            storage.enableSaving = false;
+
+            storage.Spawn();
+
+            storage.inventory.playerOwner = player;
+
+            if (storage.TryGetComponent<DestroyOnGroundMissing>(out DestroyOnGroundMissing groundMissing))
+            {
+                UnityEngine.Object.Destroy(groundMissing);
+            }
+
+            if (storage.TryGetComponent<GroundWatch>(out GroundWatch ridgidbody))
+            {
+                UnityEngine.Object.Destroy(ridgidbody);
+            }
+
+            _viewingtarget[player.userID].backpack = storage;
+
+            timer.Once(0.1f, () =>
+            {
+
+                player.inventory.loot.Clear();
+                player.inventory.loot.AddContainer(targetItem.contents);
+                player.inventory.loot.entitySource = storage;
+                player.inventory.loot.PositionChecks = false;
+                player.inventory.loot.MarkDirty();
+                player.inventory.loot.SendImmediate();
+                player.ClientRPCPlayer<string>(null, player, "RPC_OpenLootPanel", "generic_resizable");
+
+                if (config.consolelogging)
+                    LogWarning(
+                        $"{player.displayName}({player.userID}) is viewing the backpack of {targetItem.parent.playerOwner.displayName}({targetItem.parent.playerOwner.displayName})");
+            });
+
         }
+
 
         #endregion Hooks
 
@@ -423,10 +551,10 @@ namespace Oxide.Plugins
         private Message DiscordMessage(BasePlayer viewer, BasePlayer viewing, LootableCorpse corpse)
         {
             var fields = new List<Message.Fields>()
-                {
-                    new Message.Fields("Viewer: ", $"{viewer.displayName}({viewer.userID})", true),
-                    new Message.Fields("Viewing: ", $"{viewing.displayName}({viewing.userID})", true),
-                };
+                    {
+                        new Message.Fields("Viewer: ", $"{viewer.displayName}({viewer.userID})", true),
+                        new Message.Fields("Viewing: ", $"{viewing.displayName}({viewing.userID})", true),
+                    };
             string given = "";
             List<Item> givenlist;
             if (_loggiven.TryGetValue(corpse, out givenlist))
@@ -451,9 +579,9 @@ namespace Oxide.Plugins
             }
             var footer = new Message.Footer($"Logged @{DateTime.UtcNow:dd/MM/yy HH:mm:ss}");
             var embeds = new List<Message.Embeds>()
-                {
-                    new Message.Embeds("Server - " + ConVar.Server.hostname, "Inventory viewer log" , fields, footer)
-                };
+                    {
+                        new Message.Embeds("Server - " + ConVar.Server.hostname, "Inventory viewer log" , fields, footer)
+                    };
             Message msg = new Message(config.discordname, config.discordavatarurl, embeds);
             return msg;
         }

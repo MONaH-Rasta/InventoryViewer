@@ -10,7 +10,7 @@ using UnityEngine.Networking;
 
 namespace Oxide.Plugins
 {
-    [Info("Inventory Viewer", "Whispers88", "4.0.5")]
+    [Info("Inventory Viewer", "Whispers88", "4.0.6")]
     [Description("Allows players with permission assigned to view anyone's inventory")]
     public class InventoryViewer : CovalencePlugin
     {
@@ -137,14 +137,17 @@ namespace Oxide.Plugins
                     ChatMessage(iplayer, "NoPlayersFoundRayCast");
                     return;
                 }
+
                 BasePlayer targetplayerhit = hitinfo.GetEntity().ToPlayer();
                 if (targetplayerhit == null)
                 {
                     ChatMessage(iplayer, "NoPlayersFoundRayCast");
                     return;
                 }
+
                 ChatMessage(iplayer, "ViewingPLayer", targetplayerhit.displayName);
                 ViewInventory(player, targetplayerhit);
+
                 return;
             }
             IPlayer target = FindPlayer(args[0]);
@@ -153,12 +156,14 @@ namespace Oxide.Plugins
                 ChatMessage(iplayer, "NoPlayersFound", args[0]);
                 return;
             }
+
             BasePlayer targetplayer = target.Object as BasePlayer;
             if (targetplayer == null)
             {
                 ChatMessage(iplayer, "NoPlayersFound", args[0]);
                 return;
             }
+
             ChatMessage(iplayer, "ViewingPLayer", targetplayer.displayName);
             ViewInventory(player, targetplayer);
         }
@@ -176,7 +181,8 @@ namespace Oxide.Plugins
 
             LootableCorpse corpse = GameManager.server.CreateEntity(StringPool.Get(2604534927), Vector3.zero) as LootableCorpse;
             if (config.timeout != 0)
-                timer.Once(config.timeout, ()=> OnLootEntityEnd(player, corpse));
+                timer.Once(config.timeout, () => OnLootEntityEnd(player, corpse));
+
             corpse.syncPosition = false;
             corpse.limitNetworking = true;
             corpse.playerName = targetplayer.displayName;
@@ -239,7 +245,7 @@ namespace Oxide.Plugins
 
         private Dictionary<LootableCorpse, List<Item>> _logtaken = new Dictionary<LootableCorpse, List<Item>>();
         private Dictionary<LootableCorpse, List<Item>> _loggiven = new Dictionary<LootableCorpse, List<Item>>();
-        private object CanMoveItem(Item item, PlayerInventory playerInventory, uint targetContainer, int targetSlot, int amount)
+        private object CanMoveItem(Item item, PlayerInventory playerInventory, ItemContainerId targetContainer, int targetSlot, int amount)
         {
             BasePlayer player = playerInventory.baseEntity;
             if (player == null) return null;
@@ -250,7 +256,7 @@ namespace Oxide.Plugins
             if (config.discordlogging)
             {
                 ItemContainer targetcon;
-                if (targetContainer == 0)
+                if (targetContainer.Value == 0)
                 {
                     List<Item> takenlist;
                     if (_logtaken.TryGetValue(corpse, out takenlist))
@@ -325,11 +331,12 @@ namespace Oxide.Plugins
         {
             if (!_viewingcorpse.Contains(corpse)) return;
             _viewingcorpse.Remove(corpse);
-            if(corpse != null)
+            if (corpse != null)
                 corpse.Kill();
             if (_viewingcorpse.Count == 0)
                 UnSubscribeFromHooks();
         }
+
         #endregion Hooks
 
         #region Helpers
@@ -424,7 +431,7 @@ namespace Oxide.Plugins
             List<Item> givenlist;
             if (_loggiven.TryGetValue(corpse, out givenlist))
             {
-                foreach(var i in givenlist)
+                foreach (var i in givenlist)
                 {
                     given += $"{i.amount} x {i.info.name}, ";
                 }

@@ -12,7 +12,7 @@ using UnityEngine.Networking;
 
 namespace Oxide.Plugins
 {
-    [Info("Inventory Viewer", "Whispers88", "4.1.2")]
+    [Info("Inventory Viewer", "Whispers88", "4.1.3")]
     [Description("Allows players with permission assigned to view anyone's inventory")]
     public class InventoryViewer : CovalencePlugin
     {
@@ -228,7 +228,7 @@ namespace Oxide.Plugins
             player.inventory.loot.PositionChecks = false;
             player.inventory.loot.MarkDirty();
             player.inventory.loot.SendImmediate();
-            player.ClientRPCPlayer<string>(null, player, "RPC_OpenLootPanel", "player_corpse");
+            player.ClientRPC(RpcTarget.Player("RPC_OpenLootPanel", player), "player_corpse");
 
             if (_viewingtarget.TryGetValue(player.userID, out LootingData lootingData))
             {
@@ -455,7 +455,7 @@ namespace Oxide.Plugins
                 player.inventory.loot.PositionChecks = false;
                 player.inventory.loot.MarkDirty();
                 player.inventory.loot.SendImmediate();
-                player.ClientRPCPlayer<string>(null, player, "RPC_OpenLootPanel", "generic_resizable");
+                player.ClientRPC(RpcTarget.Player("RPC_OpenLootPanel", player), "generic_resizable");
 
                 if (config.consolelogging)
                     LogWarning(

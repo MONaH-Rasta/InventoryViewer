@@ -12,7 +12,7 @@ using UnityEngine.Networking;
 
 namespace Oxide.Plugins
 {
-    [Info("Inventory Viewer", "Whispers88", "4.1.3")]
+    [Info("Inventory Viewer", "Whispers88", "4.1.4")]
     [Description("Allows players with permission assigned to view anyone's inventory")]
     public class InventoryViewer : CovalencePlugin
     {
@@ -200,7 +200,8 @@ namespace Oxide.Plugins
             corpse.enableSaving = false;
             corpse.Spawn();
             corpse.CancelInvoke(corpse.RemoveCorpse);
-            corpse.SetFlag(BaseEntity.Flags.Locked, true);
+            using (var flags = corpse.StartSetFlags(BaseEntity.FlagsUpdateMode.SendNetworkUpdate))
+                flags.Set(BaseEntity.Flags.Locked, true);
             Buoyancy bouyancy;
             if (corpse.TryGetComponent<Buoyancy>(out bouyancy))
             {
